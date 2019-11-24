@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 
 # --------------------------------------------------------------------------------
 #  Usage Description Function
@@ -83,10 +83,10 @@ echo "PctCoverage, Nnonzero, Ngrayordinates" >| "$OutputAtlasDenseTimeseries"_no
 echo "${PctCoverage}, ${Nnonzero}, ${Ngrayordinates}" >> "$OutputAtlasDenseTimeseries"_nonzero.stats.txt
 # If we don't have full grayordinate coverage, save out a mask to identify those locations
 if [ "$Nnonzero" -ne "$Ngrayordinates" ]; then
-	${CARET7DIR}/wb_command -cifti-math 'x > 0' "$OutputAtlasDenseTimeseries"_nonzero.dscalar.nii -var "$OutputAtlasDenseTimeseries".stdev.dscalar.nii
+	${CARET7DIR}/wb_command -cifti-math 'x > 0' "$OutputAtlasDenseTimeseries"_nonzero.dscalar.nii -var x "$OutputAtlasDenseTimeseries".stdev.dscalar.nii
 fi
 rm -f "$OutputAtlasDenseTimeseries".stdev.dscalar.nii
-	
+
 #Basic Cleanup
 rm "$NameOffMRI"_AtlasSubcortical_s"$SmoothingFWHM".nii.gz
 rm "$NameOffMRI"_s"$SmoothingFWHM".atlasroi.L."$LowResMesh"k_fs_LR.func.gii

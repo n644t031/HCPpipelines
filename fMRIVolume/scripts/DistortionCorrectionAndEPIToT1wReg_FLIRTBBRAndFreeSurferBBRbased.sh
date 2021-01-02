@@ -2,7 +2,7 @@
 
 # Requirements for this script
 #  installed versions of: FSL, FreeSurfer
-#  environment: HCPPIPEDIR, FSLDIR, FREESURFER_HOME
+#  environment: HCPPIPEDIR, FSLDIR, FREESURFER_HOME, HCPPIPEDIR_Global 
 
 # ---------------------------------------------------------------------------
 #  Constants for specification of susceptibility distortion Correction Method
@@ -11,6 +11,7 @@
 FIELDMAP_METHOD_OPT="FIELDMAP"
 SIEMENS_METHOD_OPT="SiemensFieldMap"
 GENERAL_ELECTRIC_METHOD_OPT="GeneralElectricFieldMap"
+PHILIPS_METHOD_OPT="PhilipsFieldMap"
 SPIN_ECHO_METHOD_OPT="TOPUP"
 NONE_METHOD_OPT="NONE"
 
@@ -27,66 +28,94 @@ ${script_name}: Script to register EPI to T1w, with distortion correction
 
 Usage: ${script_name} [options]
 
+  [--help] : show usage information and exit
   [--workingdir=<working dir>]
   --scoutin=<input scout image (pre-sat EPI)>
   --t1=<input T1-weighted image>
   --t1restore=<input bias-corrected T1-weighted image>
   --t1brain=<input bias-corrected, brain-extracted T1-weighted image>
-  --fmapmag=<input Siemens field map magnitude image>
-  --fmapphase=<input Siemens field map phase image>
-  --fmapgeneralelectric=<input General Electric field map image>
-  --echodiff=<difference of echo times for fieldmap, in milliseconds>
-  --SEPhaseNeg=<input spin echo negative phase encoding image>
-  --SEPhasePos=<input spin echo positive phase encoding image>
-  --echospacing=<effective echo spacing of fMRI image, in seconds>
-  --unwarpdir=<PE direction for unwarping according to the *voxel* axes: {x,y,z,x-,y-,z-} or {i,j,k,i-,j-,k-}>
-  --owarp=<output filename for warp of EPI to T1w>
   --biasfield=<input T1w bias field estimate image, in fMRI space>
-  --oregim=<output registered image (EPI to T1w)>
   --freesurferfolder=<directory of FreeSurfer folder>
   --freesurfersubjectid=<FreeSurfer Subject ID>
-  --gdcoeffs=<gradient non-linearity distortion coefficients (Siemens format)>
-  [--qaimage=<output name for QA image>]
-
-  --method=<method used for susceptibility distortion correction>
-
-        "${FIELDMAP_METHOD_OPT}"
-            equivalent to ${SIEMENS_METHOD_OPT} (see below)
-
-        "${SIEMENS_METHOD_OPT}"
-             use Siemens specific Gradient Echo Field Maps for
-             susceptibility distortion correction
-
-        "${SPIN_ECHO_METHOD_OPT}"
-             use Spin Echo Field Maps for susceptibility distortion correction
-
-        "${GENERAL_ELECTRIC_METHOD_OPT}"
-             use General Electric specific Gradient Echo Field Maps
-             for susceptibility distortion correction
-
-        "${NONE_METHOD_OPT}"
-             do not use any susceptibility distortion correction"
-             NOTE: Only valid when Pipeline is called with --processing-mode=LegacyStyleData
-
-  [--topupconfig=<topup config file>]
+  --owarp=<output filename for warp of EPI to T1w>
   --ojacobian=<output filename for Jacobian image (in T1w space)>
-  --dof=<degrees of freedom for EPI-T1 FLIRT> (default 6)
-  --fmriname=<name of fmri run> (only needed for SEBASED bias correction method)
-  --subjectfolder=<subject processing folder> (only needed for TOPUP distortion correction method)
+  --oregim=<output registered image (EPI to T1w)>
+  --usejacobian=<"TRUE" or "FALSE">
 
-  --biascorrection=<method of bias correction>
+  --gdcoeffs=<gradient non-linearity distortion coefficients (Siemens format)>
+      Set to "NONE" to skip gradient non-linearity distortion correction (GDC).
+
+  --biascorrection=<method to use for receive coil bias field correction>
 
         "SEBASED"
-             use bias field derived from spin echo, must also use --method=${SPIN_ECHO_METHOD_OPT}
+             use bias field derived from spin echo images, must also use --method="${SPIN_ECHO_METHOD_OPT}"
+
+             Note: --fmriname=<name of fmri run> required for "SEBASED" bias correction method
+
 
         "LEGACY"
-             use the bias field derived from T1w and T2w images, same as pipeline version 3.14.1 or older"
+             use the bias field derived from T1w and T2w images, same as was used in
+             pipeline version 3.14.1 or older. No longer recommended.
 
         "NONE"
              don't do bias correction
 
-  --usejacobian=<"true" or "false">
-  --preregistertool=<epi_reg (default) or flirt>
+  --method=<method to use for susceptibility distortion correction (SDC)>
+
+        "${FIELDMAP_METHOD_OPT}"
+            equivalent to "${SIEMENS_METHOD_OPT}" (see below)
+
+        "${SIEMENS_METHOD_OPT}"
+             use Siemens specific Gradient Echo Field Maps for SDC
+
+        "${SPIN_ECHO_METHOD_OPT}"
+             use a pair of Spin Echo EPI images ("Spin Echo Field Maps") acquired with
+             opposing polarity for SDC
+
+        "${GENERAL_ELECTRIC_METHOD_OPT}"
+             use General Electric specific Gradient Echo Field Maps for SDC
+
+        "${PHILIPS_METHOD_OPT}"
+             use Philips specific Gradient Echo Field Maps for SDC
+
+        "${NONE_METHOD_OPT}"
+             do not use any SDC
+
+  Options required for all --method options except for "${NONE_METHOD_OPT}":
+
+    [--echospacing=<*effective* echo spacing of fMRI input, in seconds>]
+    [--unwarpdir=<PE direction for unwarping according to the *voxel* axes: 
+       {x,y,z,x-,y-,z-} or {i,j,k,i-,j-,k-}>]
+          Polarity matters!  If your distortions are twice as bad as in the original images, 
+          try using the opposite polarity for --unwarpdir.
+
+  Options required if using --method="${SPIN_ECHO_METHOD_OPT}":
+
+    [--SEPhaseNeg=<"negative" polarity SE-EPI image>]
+    [--SEPhasePos=<"positive" polarity SE-EPI image>]
+    [--topupconfig=<topup config file>]
+    [--subjectfolder=<subject processing folder>]
+
+  Options required if using --method="${SIEMENS_METHOD_OPT}":
+
+    [--fmapmag=<input Siemens field map magnitude image>]
+    [--fmapphase=input Siemens field map phase image>]
+    [--echodiff=<difference of echo times for fieldmap, in milliseconds>]
+
+  Options required if using --method="${GENERAL_ELECTRIC_METHOD_OPT}":
+
+    [--fmapgeneralelectric=<input General Electric field map image>]
+
+  Options required if using --method="${PHILIPS_METHOD_OPT}":
+
+    [--fmapmag=<input Philips field map magnitude image>]
+    [--fmapphase=input Philips field map phase image>]
+
+  OTHER OPTIONS:
+
+  [--dof=<degrees of freedom for EPI to T1 registration: 6 (default), 9, or 12>]
+  [--qaimage=<output name for QA image>]
+  [--preregistertool=<"epi_reg" (default) or "flirt">]
 
 EOF
 }
@@ -123,7 +152,9 @@ fi
 log_Check_Env_Var HCPPIPEDIR
 log_Check_Env_Var FSLDIR
 log_Check_Env_Var FREESURFER_HOME
+log_Check_Env_Var HCPPIPEDIR_Global
 
+HCPPIPEDIR_fMRIVol=${HCPPIPEDIR}/fMRIVolume/scripts
 
 ################################################ SUPPORT FUNCTIONS ##################################################
 
@@ -148,7 +179,7 @@ defaultopt() {
 
 # Outputs (in $WD):
 #
-#    FIELDMAP, SiemensFieldMap, and GeneralElectricFieldMap:
+#    FIELDMAP, SiemensFieldMap, GeneralElectricFieldMap, and PhilipsFieldMap:
 #      Magnitude  Magnitude_brain  FieldMap
 #
 #    FIELDMAP and TOPUP sections:
@@ -222,8 +253,11 @@ case "$BiasCorrection" in
     SEBASED)
         if [[ "$DistortionCorrection" != "${SPIN_ECHO_METHOD_OPT}" ]]
         then
-            log_Err_Abort "SEBASED bias correction is only available with --method=${SPIN_ECHO_METHOD_OPT}"
+            log_Err_Abort "--biascorrection=SEBASED is only available with --method=${SPIN_ECHO_METHOD_OPT}"
         fi
+		if [ -z ${NameOffMRI} ]; then
+			log_Err_Abort "--fmriname required when using --biascorrection=SEBASED"
+		fi
         #note, this file doesn't exist yet, gets created by ComputeSpinEchoBiasField.sh
         UseBiasField="${WD}/ComputeSpinEchoBiasField/${NameOffMRI}_sebased_bias.nii.gz"
     ;;
@@ -246,8 +280,11 @@ WD=`defaultopt $WD ${RegOutput}.wdir`
 dof=`defaultopt $dof 6`
 GlobalScripts=${HCPPIPEDIR_Global}
 TopupConfig=`defaultopt $TopupConfig ${HCPPIPEDIR_Config}/b02b0.cnf`
+QAImage=`defaultopt $QAImage T1wMulEPI`
 PreregisterTool=${PreregisterTool:-epi_reg}
 
+# Convert UseJacobian value to all lowercase (to allow the user the flexibility to use True, true, TRUE, False, False, false, etc.)
+UseJacobian="$(echo ${UseJacobian} | tr '[:upper:]' '[:lower:]')"
 #sanity check the jacobian option
 if [[ "$UseJacobian" != "true" && "$UseJacobian" != "false" ]]
 then
@@ -299,7 +336,7 @@ fi
 
 case $DistortionCorrection in
 
-    ${FIELDMAP_METHOD_OPT} | ${SIEMENS_METHOD_OPT} | ${GENERAL_ELECTRIC_METHOD_OPT})
+    ${FIELDMAP_METHOD_OPT} | ${SIEMENS_METHOD_OPT} | ${GENERAL_ELECTRIC_METHOD_OPT} | ${PHILIPS_METHOD_OPT})
 
         if [ $DistortionCorrection = "${FIELDMAP_METHOD_OPT}" ] || [ $DistortionCorrection = "${SIEMENS_METHOD_OPT}" ] ; then
             # --------------------------------------
@@ -307,8 +344,9 @@ case $DistortionCorrection in
             # --------------------------------------
 
             # process fieldmap with gradient non-linearity distortion correction
-            ${GlobalScripts}/SiemensFieldMapPreprocessingAll.sh \
+            ${GlobalScripts}/FieldMapPreprocessingAll.sh \
                 --workingdir=${WD}/FieldMap \
+                --method="SiemensFieldMap" \
                 --fmapmag=${MagnitudeInputName} \
                 --fmapphase=${PhaseInputName} \
                 --echodiff=${deltaTE} \
@@ -323,9 +361,27 @@ case $DistortionCorrection in
             # -----------------------------------------------
 
             # process fieldmap with gradient non-linearity distortion correction
-            ${GlobalScripts}/GeneralElectricFieldMapPreprocessingAll.sh \
+            ${GlobalScripts}/FieldMapPreprocessingAll.sh \
                 --workingdir=${WD}/FieldMap \
+                --method="GeneralElectricFieldMap" \
                 --fmap=${GEB0InputName} \
+                --ofmapmag=${WD}/Magnitude \
+                --ofmapmagbrain=${WD}/Magnitude_brain \
+                --ofmap=${WD}/FieldMap \
+                --gdcoeffs=${GradientDistortionCoeffs}
+
+        elif [ $DistortionCorrection = "${PHILIPS_METHOD_OPT}" ] ; then
+            # --------------------------------------
+            # -- Philips Gradient Echo Field Maps --
+            # --------------------------------------
+
+            # process fieldmap with gradient non-linearity distortion correction
+            ${GlobalScripts}/FieldMapPreprocessingAll.sh \
+                --workingdir=${WD}/FieldMap \
+                --method="PhilipsFieldMap" \
+                --fmapmag=${MagnitudeInputName} \
+                --fmapphase=${PhaseInputName} \
+                --echodiff=${deltaTE} \
                 --ofmapmag=${WD}/Magnitude \
                 --ofmapmagbrain=${WD}/Magnitude_brain \
                 --ofmap=${WD}/FieldMap \

@@ -91,14 +91,12 @@
 #
 #~ND~END~
 
-
 # --------------------------------------------------------------------------------
 #  Usage Description Function
 # --------------------------------------------------------------------------------
 
-show_usage()
-{
-	cat << EOF
+show_usage() {
+	cat <<EOF
 
 Perform the steps of the HCP Diffusion Preprocessing Pipeline
 
@@ -141,6 +139,12 @@ PARAMETERs are: [ ] = optional; < > = user supplied value
                           output the commands that would be executed instead of
                           actually running them. --printcom=echo is intended to
                           be used for testing purposes
+  [--select-best-b0]
+                          If set selects the best b0 for each phase encoding direction
+                          to pass on to topup rather than the default behaviour of
+                          using equally spaced b0's throughout the scan. The best b0
+                          is identified as the least distorted (i.e., most similar to
+                          the average b0 after registration).
   [--extra-eddy-arg=<value>]
                           Generic single token (no whitespace) argument to pass
                           to the DiffPreprocPipeline_Eddy.sh script and subsequently
@@ -171,6 +175,12 @@ PARAMETERs are: [ ] = optional; < > = user supplied value
                           eddy binary, the following sequence will work:
 
                             --extra-eddy-arg=-flag --extra-eddy-arg=value
+  [--no-gpu]              If specified, use the non-GPU-enabled version of eddy.
+                          Defaults to using the GPU-enabled version of eddy.
+  [--cuda-version=X.Y]    If using the GPU-enabled version of eddy, then this
+                          option can be used to specify which eddy_cuda binary
+                          version to use. If specified, FSLDIR/bin/eddy_cudaX.Y
+                          will be used.
 
   [--combine-data-flag=<value>]
                           Specified value is passed as the CombineDataFlag value
@@ -193,12 +203,11 @@ Return Status Value:
 
 Required Environment Variables:
 
-  HCPPIPEDIR              The home directory for the version of the HCP Pipeline
-                          Scripts being used.
+  HCPPIPEDIR              The home directory for the version of the HCP Pipeline Scripts being used.
   FSLDIR                  The home directory for FSL
   FREESURFER_HOME         The home directory for FreeSurfer
   PATH                    Standard PATH environment variable must be set to find
-                          HCP-customized version of gradient_unwarp.py
+                            HCP-customized version of gradient_unwarp.py
 
 EOF
 }
@@ -211,12 +220,12 @@ EOF
 #  ${StudyFolder}         Path to subject's data folder
 #  ${Subject}             Subject ID
 #  ${PEdir}               Phase Encoding Direction, 1=LR/RL, 2=AP/PA
-#  ${PosInputImages}	  @ symbol separated list of data with 'positive' phase
+#  ${PosInputImages}      @ symbol separated list of data with 'positive' phase
 #                         encoding direction
 #  ${NegInputImages}      @ symbol separated lsit of data with 'negative' phase
 #                         encoding direction
 #  ${echospacing}         Echo spacing in msecs
-#  ${GdCoeffs}			  Path to file containing coefficients that describe
+#  ${GdCoeffs}            Path to file containing coefficients that describe
 #                         spatial variations of the scanner gradients. NONE
 #                         if not available.
 #  ${DWIName}             Name to give DWI output directories
@@ -227,9 +236,15 @@ EOF
 #  ${runcmd}              Set to a user specifed command to use if user has
 #                         requested that commands be echo'd (or printed)
 #                         instead of actually executed. Otherwise, set to
-#						  empty string.
+#                         empty string.
 #  ${extra_eddy_args}     Generic string of arguments to be passed to the
 #                         eddy binary
+#  ${SelectBestB0}        true if we should preselect the least motion corrupted b0's for topup
+#                         Anything else or unset means use uniformly sampled b0's
+#  ${no_gpu}              true if we should use the non-GPU-enabled version of eddy
+#                         Anything else or unset means use the GPU-enabled version of eddy
+#  ${cuda_version}        If using the GPU-enabled version, this value _may_ be
+#                         given to specify the version of the CUDA libraries in use.
 #  ${CombineDataFlag}     CombineDataFlag value to pass to
 #                         DiffPreprocPipeline_PostEddy.sh script and
 #                         subsequently to eddy_postproc.sh script
@@ -239,8 +254,7 @@ EOF
 #  Support Functions
 # --------------------------------------------------------------------------------
 
-get_options()
-{
+get_options() {
 	local arguments=($@)
 
 	# initialize global output variables
@@ -251,11 +265,15 @@ get_options()
 	unset NegInputImages
 	unset echospacing
 	unset GdCoeffs
+	unset SelectBestB0
 	DWIName="Diffusion"
 	DegreesOfFreedom=${DEFAULT_DEGREES_OF_FREEDOM}
 	b0maxbval=${DEFAULT_B0_MAX_BVAL}
 	runcmd=""
 	extra_eddy_args=""
+	SelectBestB0="false"
+	no_gpu="false"
+	cuda_version=""
 	CombineDataFlag=1
 
 	# parse arguments
@@ -263,123 +281,135 @@ get_options()
 	local numArgs=${#arguments[@]}
 	local argument
 
-	while [ ${index} -lt ${numArgs} ] ; do
+	while [ ${index} -lt ${numArgs} ]; do
 		argument=${arguments[index]}
 
 		case ${argument} in
-			--help)
-				show_usage
-				exit 0
-				;;
-			--version)
-				version_show $@
-				exit 0
-				;;
-			--path=*)
-				StudyFolder=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--subject=*)
-				Subject=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--PEdir=*)
-				PEdir=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--posData=*)
-				PosInputImages=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--negData=*)
-				NegInputImages=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--echospacing=*)
-				echospacing=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--gdcoeffs=*)
-				GdCoeffs=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--dwiname=*)
-				DWIName=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--dof=*)
-				DegreesOfFreedom=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--b0maxbval=*)
-				b0maxbval=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--printcom=*)
-				runcmd=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			--extra-eddy-arg=*)
-				extra_eddy_arg=${argument#*=}
-				extra_eddy_args+=" ${extra_eddy_arg} "
-				index=$(( index + 1 ))
-				;;
-			--combine-data-flag=*)
-				CombineDataFlag=${argument#*=}
-				index=$(( index + 1 ))
-				;;
-			*)
-				show_usage
-				echo "ERROR: Unrecognized Option: ${argument}"
-				exit 1
-				;;
+		--help)
+			show_usage
+			exit 0
+			;;
+		--version)
+			version_show "$@"
+			exit 0
+			;;
+		--path=*)
+			StudyFolder=${argument#*=}
+			index=$((index + 1))
+			;;
+		--subject=*)
+			Subject=${argument#*=}
+			index=$((index + 1))
+			;;
+		--PEdir=*)
+			PEdir=${argument#*=}
+			index=$((index + 1))
+			;;
+		--posData=*)
+			PosInputImages=${argument#*=}
+			index=$((index + 1))
+			;;
+		--negData=*)
+			NegInputImages=${argument#*=}
+			index=$((index + 1))
+			;;
+		--echospacing=*)
+			echospacing=${argument#*=}
+			index=$((index + 1))
+			;;
+		--gdcoeffs=*)
+			GdCoeffs=${argument#*=}
+			index=$((index + 1))
+			;;
+		--dwiname=*)
+			DWIName=${argument#*=}
+			index=$((index + 1))
+			;;
+		--dof=*)
+			DegreesOfFreedom=${argument#*=}
+			index=$((index + 1))
+			;;
+		--b0maxbval=*)
+			b0maxbval=${argument#*=}
+			index=$((index + 1))
+			;;
+		--printcom=*)
+			runcmd=${argument#*=}
+			index=$((index + 1))
+			;;
+		--select-best-b0)
+			SelectBestB0="true"
+			index=$((index + 1))
+			;;
+		--extra-eddy-arg=*)
+			extra_eddy_arg=${argument#*=}
+			extra_eddy_args+=" ${extra_eddy_arg} "
+			index=$((index + 1))
+			;;
+		--no-gpu)
+			no_gpu="true"
+			index=$((index + 1))
+			;;
+		--cuda-version=*)
+			cuda_version=${argument#*=}
+			index=$((index + 1))
+			;;
+		--combine-data-flag=*)
+			CombineDataFlag=${argument#*=}
+			index=$((index + 1))
+			;;
+		*)
+			show_usage
+			echo "ERROR: Unrecognized Option: ${argument}"
+			exit 1
+			;;
 		esac
 	done
 
 	local error_msgs=""
 
 	# check required parameters
-	if [ -z ${StudyFolder} ] ; then
+	if [ -z ${StudyFolder} ]; then
 		error_msgs+="\nERROR: <study-path> not specified"
 	fi
 
-	if [ -z ${Subject} ] ; then
+	if [ -z ${Subject} ]; then
 		error_msgs+="\nERROR: <subject-id> not specified"
 	fi
 
-	if [ -z ${PEdir} ] ; then
+	if [ -z ${PEdir} ]; then
 		error_msgs+="\nERROR: <phase-encoding-dir> not specified"
 	fi
 
-	if [ -z ${PosInputImages} ] ; then
+	if [ -z ${PosInputImages} ]; then
 		error_msgs+="\nERROR: <positive-phase-encoded-data> not specified"
 	fi
 
-	if [ -z ${NegInputImages} ] ; then
+	if [ -z ${NegInputImages} ]; then
 		error_msgs+="\nERROR: <negative-phase-encoded-data> not specified"
 	fi
 
-	if [ -z ${echospacing} ] ; then
+	if [ -z ${echospacing} ]; then
 		error_msgs+="\nERROR: <echo-spacing> not specified"
 	fi
 
-	if [ -z ${GdCoeffs} ] ; then
+	if [ -z ${GdCoeffs} ]; then
 		error_msgs+="\nERROR: <path-to-gradients-coefficients-file> not specified"
 	fi
 
-	if [ -z ${b0maxbval} ] ; then
+	if [ -z ${b0maxbval} ]; then
 		error_msgs+="\nERROR: <b0-max-bval> not specified"
 	fi
 
-	if [ -z ${DWIName} ] ; then
+	if [ -z ${DWIName} ]; then
 		error_msgs+="\nERROR: <DWIName> not specified"
 	fi
 
-	if [ -z ${CombineDataFlag} ] ; then
+	if [ -z ${CombineDataFlag} ]; then
 		error_msgs+="\nERROR: CombineDataFlag not specified"
 	fi
 
-	if [ ! -z "${error_msgs}" ] ; then
+	if [ ! -z "${error_msgs}" ]; then
 		show_usage
 		echo -e ${error_msgs}
 		echo ""
@@ -400,31 +430,58 @@ get_options()
 	echo "   b0maxbval: ${b0maxbval}"
 	echo "   runcmd: ${runcmd}"
 	echo "   CombineDataFlag: ${CombineDataFlag}"
+	echo "   SelectBestB0: ${SelectBestB0}"
 	echo "   extra_eddy_args: ${extra_eddy_args}"
+	echo "   no_gpu: ${no_gpu}"
+	echo "   cuda-version: ${cuda_version}"
 	echo "-- ${g_script_name}: Specified Command-Line Parameters - End --"
+
+	if [ "${SelectBestB0}" == "true" ]; then
+		dont_peas_set=false
+		fwhm_set=false
+		if [ ! -z "${extra_eddy_args}" ]; then
+			for extra_eddy_arg in ${extra_eddy_args}; do
+				if [[ ${extra_eddy_arg} == "--fwhm"* ]]; then
+					fwhm_set=true
+				fi
+				if [[ ${extra_eddy_arg} == "--dont_peas"* ]]; then
+					show_usage
+					log_Err "When using --select-best-b0, post-alignment of shells in eddy is required, "
+					log_Err "as the first b0 could be taken from anywhere within the diffusion data and "
+					log_Err "hence might not be aligned to the first diffusion-weighted image."
+					log_Err_Abort "Remove either the --extra_eddy_args=--dont_peas flag or the --select-best-b0 flag"
+				fi
+			done
+		fi
+		if [ ${fwhm_set} == false ]; then
+			log_Warn "Using --select-best-b0 prepends the best b0 to the start of the file passed into eddy."
+			log_Warn "To ensure eddy succesfully aligns this new first b0 with the actual first volume,"
+			log_Warn "we recommend to increase the FWHM for the first eddy iterations if using --select-best-b0"
+			log_Warn "This can be done by setting the --extra_eddy_args=--fwhm=... flag"
+		fi
+	fi
 }
 
 #
 # Function Description
 #  Validate necessary scripts exist
 #
-validate_scripts()
-{
+validate_scripts() {
 	local error_msgs=""
 
-	if [ ! -e ${HCPPIPEDIR}/DiffusionPreprocessing/DiffPreprocPipeline_PreEddy.sh ] ; then
+	if [ ! -e ${HCPPIPEDIR}/DiffusionPreprocessing/DiffPreprocPipeline_PreEddy.sh ]; then
 		error_msgs+="\nERROR: HCPPIPEDIR/DiffusionPreprocessing/DiffPreprocPipeline_PreEddy.sh not found"
 	fi
 
-	if [ ! -e ${HCPPIPEDIR}/DiffusionPreprocessing/DiffPreprocPipeline_Eddy.sh ] ; then
+	if [ ! -e ${HCPPIPEDIR}/DiffusionPreprocessing/DiffPreprocPipeline_Eddy.sh ]; then
 		error_msgs+="\nERROR: HCPPIPEDIR/DiffusionPreprocessing/DiffPreprocPipeline_Eddy.sh not found"
 	fi
 
-	if [ ! -e ${HCPPIPEDIR}/DiffusionPreprocessing/DiffPreprocPipeline_PostEddy.sh ] ; then
+	if [ ! -e ${HCPPIPEDIR}/DiffusionPreprocessing/DiffPreprocPipeline_PostEddy.sh ]; then
 		error_msgs+="\nERROR: HCPPIPEDIR/DiffusionPreprocessing/DiffPreprocPipeline_PostEddy.sh not found"
 	fi
 
-	if [ ! -z "${error_msgs}" ] ; then
+	if [ ! -z "${error_msgs}" ]; then
 		show_usage
 		echo -e ${error_msgs}
 		echo ""
@@ -436,8 +493,7 @@ validate_scripts()
 # Function Description
 #  Main processing of script
 #
-main()
-{
+main() {
 	# Get Command Line Options
 	get_options "$@"
 
@@ -456,6 +512,9 @@ main()
 	pre_eddy_cmd+=" --echospacing=${echospacing} "
 	pre_eddy_cmd+=" --b0maxbval=${b0maxbval} "
 	pre_eddy_cmd+=" --printcom=${runcmd} "
+	if [ "${SelectBestB0}" == "true" ]; then
+		pre_eddy_cmd+=" --select-best-b0 "
+	fi
 
 	log_Msg "pre_eddy_cmd: ${pre_eddy_cmd}"
 	${pre_eddy_cmd}
@@ -468,8 +527,16 @@ main()
 	eddy_cmd+=" --dwiname=${DWIName} "
 	eddy_cmd+=" --printcom=${runcmd} "
 
-	if [ ! -z "${extra_eddy_args}" ] ; then
-		for extra_eddy_arg in ${extra_eddy_args} ; do
+	if [ "${no_gpu}" == "true" ]; then
+		# default is to use the GPU-enabled version
+		eddy_cmd+=" --no-gpu "
+	else
+		if [ ! -z "${cuda_version}" ]; then
+			eddy_cmd+=" --cuda-version=${cuda_version}"
+		fi
+	fi
+	if [ ! -z "${extra_eddy_args}" ]; then
+		for extra_eddy_arg in ${extra_eddy_args}; do
 			eddy_cmd+=" --extra-eddy-arg=${extra_eddy_arg} "
 		done
 	fi
@@ -487,6 +554,9 @@ main()
 	post_eddy_cmd+=" --dof=${DegreesOfFreedom} "
 	post_eddy_cmd+=" --combine-data-flag=${CombineDataFlag} "
 	post_eddy_cmd+=" --printcom=${runcmd} "
+	if [ "${SelectBestB0}" == "true" ]; then
+		post_eddy_cmd+=" --select-best-b0 "
+	fi
 
 	log_Msg "post_eddy_cmd: ${post_eddy_cmd}"
 	${post_eddy_cmd}
@@ -508,8 +578,8 @@ g_script_name=$(basename "${0}")
 
 # Allow script to return a Usage statement, before any other output
 if [ "$#" = "0" ]; then
-    show_usage
-    exit 1
+	show_usage
+	exit 1
 fi
 
 # Verify that HCPPIPEDIR Environment variable is set
@@ -519,13 +589,13 @@ if [ -z "${HCPPIPEDIR}" ]; then
 fi
 
 # Load function libraries
-source "${HCPPIPEDIR}/global/scripts/debug.shlib" "$@"         # Debugging functions; also sources log.shlib
-source ${HCPPIPEDIR}/global/scripts/opts.shlib                 # Command line option functions
-source ${HCPPIPEDIR}/global/scripts/version.shlib	           # version_ functions
+source "${HCPPIPEDIR}/global/scripts/debug.shlib" "$@" # Debugging functions; also sources log.shlib
+source ${HCPPIPEDIR}/global/scripts/opts.shlib         # Command line option functions
+source ${HCPPIPEDIR}/global/scripts/version.shlib      # version_ functions
 
-opts_ShowVersionIfRequested $@
+opts_ShowVersionIfRequested "$@"
 
-if opts_CheckForHelpRequest $@; then
+if opts_CheckForHelpRequest "$@"; then
 	show_usage
 	exit 0
 fi
@@ -539,5 +609,4 @@ log_Check_Env_Var FSLDIR
 #
 # Invoke the 'main' function to get things started
 #
-main $@
-
+main "$@"

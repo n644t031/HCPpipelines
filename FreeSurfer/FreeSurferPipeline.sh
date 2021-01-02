@@ -78,10 +78,6 @@ show_tool_versions()
 	which tkregister
 	tkregister -version
 
-	# Show fslmaths version
-	log_Msg "Showing fslmaths version"
-	which fslmaths
-
 	# Show mri_concatenate_lta version
 	log_Msg "Showing mri_concatenate_lta version"
 	which mri_concatenate_lta
@@ -89,7 +85,12 @@ show_tool_versions()
 
 	# Show mri_surf2surf version
 	log_Msg "Showing mri_surf2surf version"
-	which mri_surf2surf --version
+	which mri_surf2surf
+	mri_surf2surf -version
+
+	# Show fslmaths location
+	log_Msg "Showing fslmaths location"
+	which fslmaths
 }
 
 validate_freesurfer_version()
@@ -519,7 +520,7 @@ make_t2w_hires_nifti_file()
 #
 # Generate QC file - T1w X T2w
 #
-make_t1wxtw2_qc_file()
+make_t1wxt2w_qc_file()
 {
 	local working_dir
 	local t1w_input_file
@@ -684,7 +685,7 @@ main()
 		recon_all_cmd+=" -i ${zero_threshold_T1wImage}"
 		recon_all_cmd+=" -emregmask ${T1wImageBrain}"
 		if [ "${T2wImage}" != "NONE" ]; then
-			if [ "${flair}" = "TRUE"]; then
+			if [ "${flair}" = "TRUE" ]; then
 				recon_all_cmd+=" -FLAIR ${T2wImage}"
 			else
 				recon_all_cmd+=" -T2 ${T2wImage}"
@@ -696,7 +697,7 @@ main()
 	# If for some other reason the -T2pial flag needs to be excluded from recon-all, 
 	# this can be accomplished using --extra-reconall-arg=-noT2pial
 	if [ "${T2wImage}" != "NONE" ]; then
-		if [ "${flair}" = "TRUE"]; then
+		if [ "${flair}" = "TRUE" ]; then
 			recon_all_cmd+=" -FLAIRpial"
 		else
 			recon_all_cmd+=" -T2pial"
@@ -873,7 +874,7 @@ main()
 
 		make_t2w_hires_nifti_file "${mridir}"
 
-		make_t1wxtw2_qc_file "${mridir}"
+		make_t1wxt2w_qc_file "${mridir}"
 	fi
 
 	# ----------------------------------------------------------------------

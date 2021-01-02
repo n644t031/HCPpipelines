@@ -131,14 +131,14 @@ get_options()
 				p_fMRINames=${argument#*=}
 				;;
 			--multirun-fix-names=*)
-			    p_mrfixNames=${argument#*=}
-			    ;;
+				p_mrfixNames=${argument#*=}
+				;;
 			--multirun-fix-concat-name=*)
-			    p_mrfixConcatName=${argument#*=}
-			    ;;
-		    --multirun-fix-names-to-use=*)
-		        p_mrfixNamesToUse=${argument#*=}
-		        ;;
+				p_mrfixConcatName=${argument#*=}
+				;;
+			--multirun-fix-names-to-use=*)
+				p_mrfixNamesToUse=${argument#*=}
+				;;
 			--output-fmri-name=*)
 				p_OutputfMRIName=${argument#*=}
 				;;
@@ -203,7 +203,7 @@ get_options()
     	    fi
     	    if [[ -z "$p_mrfixNamesToUse" ]]
     	    then
-		        log_Err "--multirun-fix-concat-name is required when using --multirun-fix-names"
+		        log_Err "--multirun-fix-names-to-use is required when using --multirun-fix-names"
 		        error_count=$(( error_count + 1 ))
     	    fi
 	    fi
@@ -401,7 +401,7 @@ main()
 		do
 			fmriName="${mrNamesArray[$index]}"
 			NumTPS=`${CARET7DIR}/wb_command -file-information "${StudyFolder}/${Subject}/MNINonLinear/Results/${fmriName}/${fmriName}_Atlas.dtseries.nii" -only-number-of-maps`
-			((curTimepoints += NumTPS))
+			curTimepoints=$((curTimepoints + NumTPS))
 			runSplits[$((index + 1))]="$curTimepoints"
 			for ((index2 = 0; index2 < ${#mrNamesUseArray[@]}; ++index2))
 			do
@@ -415,7 +415,8 @@ main()
 		mergeArgs=()
 		for ((index2 = 0; index2 < ${#mrNamesUseArray[@]}; ++index2))
 		do
-			runIndex="${runIndices[$index2]}"
+			#element may be unset
+			runIndex="${runIndices[$index2]+"${runIndices[$index2]}"}"
 			if [[ "$runIndex" == "" ]]
 			then
 				log_Err_Abort "requested run '${mrNamesUseArray[$index2]}' not found in list of MR fix runs"

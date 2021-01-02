@@ -4,15 +4,23 @@
 #  installed versions of: FSL, FreeSurfer, gradunwarp (HCP version) 
 #  environment: HCPPIPEDIR, FSLDIR, FREESURFER_HOME, HCPPIPEDIR_Global, PATH for gradient_unwarp.py
 
-########################################## PIPELINE OVERVIEW ########################################## 
-
-# TODO
 
 ########################################## OUTPUT DIRECTORIES ########################################## 
 
 # TODO
 
 ########################################## SUPPORT FUNCTIONS ##########################################
+
+# ---------------------------------------------------------------------------
+#  Constants for specification of susceptibility distortion Correction Method
+# ---------------------------------------------------------------------------
+
+FIELDMAP_METHOD_OPT="FIELDMAP"
+SIEMENS_METHOD_OPT="SiemensFieldMap"
+GENERAL_ELECTRIC_METHOD_OPT="GeneralElectricFieldMap"
+PHILIPS_METHOD_OPT="PhilipsFieldMap"
+SPIN_ECHO_METHOD_OPT="TOPUP"
+NONE_METHOD_OPT="NONE"
 
 # --------------------------------------------------------------------------------
 #  Usage Description Function
@@ -27,16 +35,265 @@ ${script_name}: Run fMRIVolume processing pipeline
 
 Usage: ${script_name} [options]
 
-Usage information To Be Written
+  [--help] : show usage information and exit
+  --path=<path to study folder>
+  --subject=<subject ID>
+  --fmritcs=<input fMRI time series (NIFTI)>
+  --fmriname=<name (prefix) to use for the output>
+  --fmrires=<final resolution (mm) of the output data>
+
+  --biascorrection=<method to use for receive coil bias field correction>
+
+        "SEBASED"
+             use bias field derived from spin echo images, must also use --dcmethod="${SPIN_ECHO_METHOD_OPT}"
+
+        "LEGACY"
+             use the bias field derived from T1w and T2w images, same as was used in 
+             pipeline version 3.14.1 or older. No longer recommended.
+
+        "NONE"
+             don't do bias correction
+
+  [--fmriscout=<input "scout" volume>]
+
+      Used as the target for motion correction and for BBR registration to the structurals.
+      In HCP-Style acquisitions, the "SBRef" (single-band reference) volume associated with a run is 
+      typically used as the "scout".
+      Default: "NONE" (in which case the first volume of the time-series is extracted and used as the "scout")
+      It must have identical dimensions, voxel resolution, and distortions (i.e., phase-encoding 
+      polarity and echo-spacing) as the input fMRI time series
+
+  [--mctype=<type of motion correction to use: "MCFLIRT" (default) or "FLIRT">]
+
+  --gdcoeffs=<gradient non-linearity distortion coefficients (Siemens format)>
+      Set to "NONE" to skip gradient non-linearity distortion correction (GDC).
+
+  --dcmethod=<method to use for susceptibility distortion correction (SDC)>
+
+        "${FIELDMAP_METHOD_OPT}"
+            equivalent to "${SIEMENS_METHOD_OPT}" (see below)
+
+        "${SIEMENS_METHOD_OPT}"
+             use Siemens specific Gradient Echo Field Maps for SDC
+
+        "${SPIN_ECHO_METHOD_OPT}"
+             use a pair of Spin Echo EPI images ("Spin Echo Field Maps") acquired with
+             opposing polarity for SDC
+
+        "${GENERAL_ELECTRIC_METHOD_OPT}"
+             use General Electric specific Gradient Echo Field Maps for SDC
+
+        "${PHILIPS_METHOD_OPT}"
+             use Philips specific Gradient Echo Field Maps for SDC
+
+        "${NONE_METHOD_OPT}"
+             do not use any SDC
+             NOTE: Only valid when Pipeline is called with --processing-mode="LegacyStyleData"
+
+  Options required for all --dcmethod options except for "${NONE_METHOD_OPT}":
+
+    [--echospacing=<*effective* echo spacing of fMRI input, in seconds>]
+    [--unwarpdir=<PE direction for unwarping according to the *voxel* axes: 
+       {x,y,z,x-,y-,z-} or {i,j,k,i-,j-,k-}>]
+          Polarity matters!  If your distortions are twice as bad as in the original images, 
+          try using the opposite polarity for --unwarpdir.
+
+  Options required if using --dcmethod="${SPIN_ECHO_METHOD_OPT}":
+
+    [--SEPhaseNeg=<"negative" polarity SE-EPI image>]
+    [--SEPhasePos=<"positive" polarity SE-EPI image>]
+    [--topupconfig=<topup config file>]
+
+  Options required if using --dcmethod="${SIEMENS_METHOD_OPT}":
+
+    [--fmapmag=<input Siemens field map magnitude image>]
+    [--fmapphase=input Siemens field map phase image>]
+    [--echodiff=<difference of echo times for fieldmap, in milliseconds>]
+
+  Options required if using --dcmethod="${GENERAL_ELECTRIC_METHOD_OPT}":
+
+    [--fmapgeneralelectric=<input General Electric field map image>]
+
+  Options required if using --dcmethod="${PHILIPS_METHOD_OPT}":
+
+    [--fmapmag=<input Philips field map magnitude image>]
+    [--fmapphase=input Philips field map phase image>]
+
+  OTHER OPTIONS:
+
+  [--dof=<Degrees of freedom for the EPI to T1 registration: 6 (default), 9, or 12>]
+
+  [--usejacobian=<"TRUE" or "FALSE">]
+
+      Controls whether the jacobian of the *distortion corrections* (GDC and SDC) are applied 
+      to the output data.  (The jacobian of the nonlinear T1 to template (MNI152) registration 
+      is NOT applied, regardless of value).  
+      Default: "TRUE" if using --dcmethod="${SPIN_ECHO_METHOD_OPT}"; "FALSE" for all other SDC methods.
+
+  [--processing-mode=<"HCPStyleData" (default) or "LegacyStyleData">
+
+      Controls whether the HCP acquisition and processing guidelines should be treated as requirements.
+      "HCPStyleData" (the default) follows the processing steps described in Glasser et al. (2013) 
+        and requires 'HCP-Style' data acquistion. 
+      "LegacyStyleData" allows additional processing functionality and use of some acquisitions
+        that do not conform to 'HCP-Style' expectations.  
+
+
+  -------- "LegacyStyleData" MODE OPTIONS --------
+
+   Use --processing-mode-info to see important additional information and warnings about the use of 
+   the following options!
+
+  [--preregistertool=<"epi_reg" (default) or "flirt">]
+
+      Specifies which software tool to use to preregister the fMRI to T1w image 
+      (prior to the final FreeSurfer BBR registration).
+      "epi_reg" is default, whereas "flirt" might give better results with some 
+      legacy type data (e.g., single band, low resolution).
+
+  [--doslicetime=<"FALSE" (default) or "TRUE">]
+
+      Specifies whether slice timing correction should be run on the fMRI input.
+      If set to "TRUE" FSL's 'slicetimer' is run before motion correction. 
+      Please run with --processing-mode-info flag for additional information on the issues 
+      relevant for --doslicetime.
+
+  [--slicetimerparams=<"@" separated list of slicetimer parameters>]
+
+      Enables passing additional parameters to FSL's 'slicetimer' if --doslicetime="TRUE".
+      The parameters to pass should be provided as a "@" separated string, e.g.:
+        --slicetimerparams="--odd@--ocustom=<CustomInterleaveFile>"
+      For details about valid parameters please consult FSL's 'slicetimer' documentation. 
+
+  [--fmrimask=<type of final mask to use for final fMRI output volume>]
+
+      Specifies the type of final mask to apply to the volumetric fMRI data. Valid options are:
+        "T1_fMRI_FOV" (default) - T1w brain based mask combined with fMRI FOV mask
+        "T1_DILATED_fMRI_FOV" - once dilated T1w brain based mask combined with fMRI FOV
+        "T1_DILATED2x_fMRI_FOV" - twice dilated T1w brain based mask combined with fMRI FOV
+        "fMRI_FOV" - fMRI FOV mask only (i.e., voxels having spatial coverage at all time points)
+      Note that mask is used in IntensityNormalization.sh, so the mask type affects the final results.
+
+  [--fmriref=<"NONE" (default) or reference fMRI run name>]
+
+      Specifies whether to use another (already processed) fMRI run as a reference for processing.
+      (i.e., --fmriname from the run to be used as *reference*).
+      The specified run will be used as a reference for motion correction and its distortion
+      correction and atlas (MNI152) registration will be copied over and used. The reference fMRI
+      has to have been fully processed using the fMRIVolume pipeline, so that a distortion
+      correction and atlas (MNI152) registration solution for the reference fMRI already exists. 
+      The reference fMRI must have been acquired using the same imaging parameters (e.g., phase 
+      encoding polarity and echo spacing), or it can not serve as a valid reference. (NO checking 
+      is performed to verify this).
+      WARNING: This option excludes the use of the --fmriscout option, as the scout from the
+      specified reference fMRI run is used instead. 
+      Please run with --processing-mode-info flag for additional information on the issues related 
+      to the use of --fmriref.
+
+  [--fmrirefreg=<"linear" (default) or "nonlinear">]
+
+      Specifies whether to compute and apply a nonlinear transform to align the inputfMRI to the 
+      reference fMRI, if one is specified using --fmriref. The nonlinear transform is computed 
+      using 'fnirt' following the motion correction using the mean motion corrected fMRI image.
 
 EOF
 }
+
+show_processing_mode_info() {
+  cat <<EOF
+
+Processing mode additional information
+--------------------------------------
+
+HCPpipelines were designed to provide state-of-the-art processing of MR datasets. To achieve 
+optimal results HCPpipelines expects the data to conform to a set of requirements such as the 
+presence of high resolution T1w and T2w images and an appropriate set of images (i.e., field map 
+images) that enable performing susceptibility distortion correction (SDC). In addition 
+HCPpipelines expect the data to be of sufficiently high quality to ensure best results, e.g., 
+multiband high-resolution fMRI images with short TR for which slice timing correction is
+not necessary.
+
+Many datasets do not meet the requirements and expectations of HCPpipelines, either because
+they are older and have been acquired using imaging protocols and sequences that are considered 
+outdated (e.g., single-band low-resolution, long TR fMRI images, no high-resolution T2w image), 
+or the specifics of the study or the equipment used does not allow optimal data collection.
+In these cases, the HCPpipelines can not ensure the standard of quality enabled by 
+the use of appropriate data -- nonetheless, a need to process these datasets to the best 
+possible extent is acknowledged. 
+
+To enable processing of datasets that do not meet HCPpipelines reqirements and expectations,
+HCPpipelines offers a set of parameters and parameter choices that either extend the 
+processing options (e.g., enable slice timing correction) or allow processing despite
+missing data, which is required for ensuring optimal results (e.g., no T2w or field map images).
+To clearly distinguish between processing that meets HCPpipelines requirements and 
+expectations and processing of suboptimal data that does not meet HCP standards, these options
+are only enabled when legacy processing mode is explicitly turned on by setting
+--processing-mode="LegacyStyleData". 
+
+The following paragraphs describe the specific considerations when using the "LegacyStyleData" 
+processing options associated with ${script_name}.
+
+Slice timing correction:
+--doslicetime enables slice timing correction in the cases of fMRI images with longer TR. 
+If turned on, slice timing correction is performed before motion correction and thus implicitly 
+assumes that the brain is motionless. Errors in temporal interpolation will occur in the presence
+of head motion and may also disrupt data quality measures as shown in Power et al (2017, PLOS One, 
+"Temporal interpolation alters motion in fMRI scans: Magnitudes and consequences for artifact 
+detection"). Slice timing correction and motion correction would ideally be performed 
+simultaneously; however, this is not currently supported by any major software tool. HCP-Style 
+fast TR fMRI data acquisitions (TR<=1s) avoid the need for slice timing correction, provide 
+major advantages for fMRI denoising, and are recommended. 
+
+Use of expanded fMRI masks:
+As the final step in processing of fMRI data, the data is intensity normalized. This is 
+optimally done when only the brain voxels are taken into account and the regions outside of
+the brain are masked out. When working with legacy data, e.g., when no field map images are 
+available to support SDC, fMRI data might not be fully contained within the brain mask 
+generated from the T1w image. To identify such issues in quality control or to enable full use 
+of the data in analysis of volume data, the --fmrimask parameter allows widening the T1w mask 
+(T1_DILATED_fMRI_FOV, T1_DILATED2x_fMRI_FOV) or extending the mask to the complete available 
+field of view (fMRI_FOV, i.e., voxels having spatial coverage at all time points). 
+Do consider that these options will impact intensity normalization.
+
+Use of a reference fMRI run:
+In the cases of low-resolution fMRI images, registering the input fMRI images directly to
+another fMRI run and using a common SDC and translation to atlas space can lead to better 
+between-run fMRI registration, compared to performing both independently for each fMRI run. 
+This is enabled using the --fmriref parameter. Note that using this parameter requires the 
+reference fMRI to be acquired using the same parameters (e.g., phase encoding polarity and
+echo spacing) and already processed. Also note that the use of this parameter is 
+incompatible with the use of the --fmriscout parameter as the scout from the reference image 
+is used instead.
+
+Nonlinear registration to reference fMRI run:
+In cases when the input fMRI images are registered to a reference fMRI and there is significant
+movement between the two scanning runs, it can be beneficial to perform nonlinear registration 
+(using 'fnirt') to the reference fMRI image. 
+In this case --fmrirefreg can be set to "nonlinear"; otherwise a linear registration is used.
+
+No available SDC method:
+When no field map images are available and therefore no SDC method can be used to correct
+the distortion, --dcmethod can be set to "NONE". In this case fMRIVolume pipeline is run without 
+appropriate distortion correction of the fMRI images. This is NOT RECOMMENDED under normal 
+circumstances. The pipeline will attempt 6 DOF FreeSurfer BBR registration of the distorted 
+fMRI to the T1w image. Distorted portions of the fMRI data will not align with the cortical ribbon.
+In HCP data 30% of the cortical surface will be misaligned by at least half cortical thickness 
+and 10% of the cortical surface will be completely misaligned by a full cortical thickness. 
+At a future time, we may be able to add support for fieldmap-less distortion correction. 
+At this time, however, despite ongoing efforts, this problem is unsolved and no extant approach 
+has been successfully shown to demonstrate clear improvement according to the accuracy standards
+of HCP-Style data analysis when compared to gold-standard fieldmap-based correction.
+
+EOF
+}
+
 
 # Allow script to return a Usage statement, before any other output or checking
 if [ "$#" = "0" ]; then
 	show_usage
 	exit 1
 fi
+
 
 # ------------------------------------------------------------------------------
 #  Check that HCPPIPEDIR is defined and Load Function Libraries
@@ -59,6 +316,11 @@ if opts_CheckForHelpRequest $@; then
 	exit 0
 fi
 
+if opts_CheckForFlag --processing-mode-info $@; then
+  show_processing_mode_info
+  exit 0
+fi
+
 ${HCPPIPEDIR}/show_version
 
 # ------------------------------------------------------------------------------
@@ -70,8 +332,7 @@ log_Check_Env_Var FSLDIR
 log_Check_Env_Var FREESURFER_HOME
 log_Check_Env_Var HCPPIPEDIR_Global
 
-GlobalScripts=${HCPPIPEDIR_Global}
-PipelineScripts=${HCPPIPEDIR}/fMRIVolume/scripts
+HCPPIPEDIR_fMRIVol=${HCPPIPEDIR}/fMRIVolume/scripts
 
 # ------------------------------------------------------------------------------
 #  Check for incompatible FSL version
@@ -120,22 +381,46 @@ log_Msg "Parsing Command Line Options"
 # parse arguments
 Path=`opts_GetOpt1 "--path" $@`
 log_Msg "Path: ${Path}"
+if [ -z ${Path} ]; then
+	log_Err_Abort "--path must be specified"
+fi
 
 Subject=`opts_GetOpt1 "--subject" $@`
 log_Msg "Subject: ${Subject}"
-
-NameOffMRI=`opts_GetOpt1 "--fmriname" $@`
-log_Msg "NameOffMRI: ${NameOffMRI}"
+if [ -z ${Subject} ]; then
+	log_Err_Abort "--subject must be specified"
+fi
 
 fMRITimeSeries=`opts_GetOpt1 "--fmritcs" $@`
 log_Msg "fMRITimeSeries: ${fMRITimeSeries}"
+if [ -z ${fMRITimeSeries} ]; then
+	log_Err_Abort "--fmritcs must be specified"
+fi
+
+NameOffMRI=`opts_GetOpt1 "--fmriname" $@`
+log_Msg "NameOffMRI: ${NameOffMRI}"
+if [ -z ${NameOffMRI} ]; then
+	log_Err_Abort "--fmriname must be specified"
+fi
+
+FinalfMRIResolution=`opts_GetOpt1 "--fmrires" $@`  
+log_Msg "FinalfMRIResolution: ${FinalfMRIResolution}"
+if [ -z ${FinalfMRIResolution} ]; then
+	log_Err_Abort "--fmrires must be specified"
+fi
 
 fMRIScout=`opts_GetOpt1 "--fmriscout" $@`
 fMRIScout=`opts_DefaultOpt $fMRIScout NONE` # Set to NONE if no scout is provided. 
-                                            # NOTE: If external BOLD reference is to be used (--fmriref), --fmriscout 
+                                            # NOTE: If external fMRI reference is to be used (--fmriref), --fmriscout 
                                             #   should not be provided or it needs to be set to NONE. The two options 
                                             #   are mutually exclusive.
 log_Msg "fMRIScout: ${fMRIScout}"
+
+EchoSpacing=`opts_GetOpt1 "--echospacing" $@`  # *Effective* Echo Spacing of fMRI image, in seconds
+log_Msg "EchoSpacing: ${EchoSpacing}"
+
+UnwarpDir=`opts_GetOpt1 "--unwarpdir" $@`  
+log_Msg "UnwarpDir: ${UnwarpDir}"
 
 SpinEchoPhaseEncodeNegative=`opts_GetOpt1 "--SEPhaseNeg" $@`
 log_Msg "SpinEchoPhaseEncodeNegative: ${SpinEchoPhaseEncodeNegative}"
@@ -143,63 +428,101 @@ log_Msg "SpinEchoPhaseEncodeNegative: ${SpinEchoPhaseEncodeNegative}"
 SpinEchoPhaseEncodePositive=`opts_GetOpt1 "--SEPhasePos" $@`
 log_Msg "SpinEchoPhaseEncodePositive: ${SpinEchoPhaseEncodePositive}"
 
+TopupConfig=`opts_GetOpt1 "--topupconfig" $@`
+log_Msg "TopupConfig: ${TopupConfig}"
+
 MagnitudeInputName=`opts_GetOpt1 "--fmapmag" $@`  # Expects 4D volume with two 3D timepoints
 log_Msg "MagnitudeInputName: ${MagnitudeInputName}"
 
 PhaseInputName=`opts_GetOpt1 "--fmapphase" $@`  
 log_Msg "PhaseInputName: ${PhaseInputName}"
 
-GEB0InputName=`opts_GetOpt1 "--fmapgeneralelectric" $@`
-log_Msg "GEB0InputName: ${GEB0InputName}"
-
-EchoSpacing=`opts_GetOpt1 "--echospacing" $@`  # *Effective* Echo Spacing of fMRI image, in seconds
-log_Msg "EchoSpacing: ${EchoSpacing}"
-
 deltaTE=`opts_GetOpt1 "--echodiff" $@`  
 log_Msg "deltaTE: ${deltaTE}"
 
-UnwarpDir=`opts_GetOpt1 "--unwarpdir" $@`  
-log_Msg "UnwarpDir: ${UnwarpDir}"
+GEB0InputName=`opts_GetOpt1 "--fmapgeneralelectric" $@`
+log_Msg "GEB0InputName: ${GEB0InputName}"
 
-FinalfMRIResolution=`opts_GetOpt1 "--fmrires" $@`  
-log_Msg "FinalfMRIResolution: ${FinalfMRIResolution}"
-
-# FIELDMAP, SiemensFieldMap, GeneralElectricFieldMap, or TOPUP
+# FIELDMAP, SiemensFieldMap, GeneralElectricFieldMap, PhilipsFieldMap, or TOPUP
 # Note: FIELDMAP and SiemensFieldMap are equivalent
 DistortionCorrection=`opts_GetOpt1 "--dcmethod" $@`
 log_Msg "DistortionCorrection: ${DistortionCorrection}"
+case "$DistortionCorrection" in
+	${SPIN_ECHO_METHOD_OPT})
+		if [ -z ${SpinEchoPhaseEncodeNegative} ]; then
+			log_Err_Abort "--SEPhaseNeg must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		if [ -z ${SpinEchoPhaseEncodePositive} ]; then
+			log_Err_Abort "--SEPhasePos must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		if [ -z ${TopupConfig} ]; then
+			log_Err_Abort "--topupconfig must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		;;
+
+	${FIELDMAP_METHOD_OPT}|${SIEMENS_METHOD_OPT})
+		if [ -z ${MagnitudeInputName} ]; then
+			log_Err_Abort "--fmapmag must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		if [ -z ${PhaseInputName} ]; then
+			log_Err_Abort "--fmapphase must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		if [ -z ${deltaTE} ]; then
+			log_Err_Abort "--echodiff must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		;;
+
+	${GENERAL_ELECTRIC_METHOD_OPT})
+		if [ -z ${GEB0InputName} ]; then
+			log_Err_Abort "--fmapgeneralelectric must be specified with --dcmethod=${DistortionCorrection}"
+		fi
+		;;
+
+  ${PHILIPS_METHOD_OPT})
+    if [ -z ${MagnitudeInputName} ]; then
+      log_Err_Abort "--fmapmag must be specified with --dcmethod=${DistortionCorrection}"
+    fi
+    if [ -z ${PhaseInputName} ]; then
+      log_Err_Abort "--fmapphase must be specified with --dcmethod=${DistortionCorrection}"
+    fi
+    if [ -z ${deltaTE} ]; then
+      log_Err_Abort "--echodiff must be specified with --dcmethod=${DistortionCorrection}"
+    fi
+    ;;
+
+	${NONE_METHOD_OPT})
+		# Do nothing
+		;;
+
+	"")
+		log_Err_Abort "--dcmethod must be specified"
+		;;
+
+	*)
+		log_Err_Abort "unrecognized value for --dcmethod (${DistortionCorrection})"
+		;;
+
+esac
+# Additionally, EchoSpacing and UnwarpDir needed for all except NONE
+if [[ $DistortionCorrection != "${NONE_METHOD_OPT}" ]]; then
+	if [ -z ${EchoSpacing} ]; then
+		log_Err_Abort "--echospacing must be specified with --dcmethod=${DistortionCorrection}"
+	fi
+	if [ -z ${UnwarpDir} ]; then
+		log_Err_Abort "--unwarpdir must be specified with --dcmethod=${DistortionCorrection}"
+	fi
+fi
 
 BiasCorrection=`opts_GetOpt1 "--biascorrection" $@`
 # Convert BiasCorrection value to all UPPERCASE (to allow the user the flexibility to use NONE, None, none, legacy, Legacy, etc.)
 BiasCorrection="$(echo ${BiasCorrection} | tr '[:lower:]' '[:upper:]')"
 log_Msg "BiasCorrection: ${BiasCorrection}"
 
-GradientDistortionCoeffs=`opts_GetOpt1 "--gdcoeffs" $@`  
-log_Msg "GradientDistortionCoeffs: ${GradientDistortionCoeffs}"
-
-TopupConfig=`opts_GetOpt1 "--topupconfig" $@`  # NONE if Topup is not being used
-log_Msg "TopupConfig: ${TopupConfig}"
-
-dof=`opts_GetOpt1 "--dof" $@`
-dof=`opts_DefaultOpt $dof 6`
-log_Msg "dof: ${dof}"
-
-RUN=`opts_GetOpt1 "--printcom" $@`  # use ="echo" for just printing everything and not running the commands (default is to run)
-log_Msg "RUN: ${RUN}"
-
-#NOTE: the jacobian option only applies the jacobian of the distortion corrections to the fMRI data, and NOT from the nonlinear T1 to template registration
-UseJacobian=`opts_GetOpt1 "--usejacobian" $@`
-# Convert UseJacobian value to all lowercase (to allow the user the flexibility to use True, true, TRUE, False, False, false, etc.)
-UseJacobian="$(echo ${UseJacobian} | tr '[:upper:]' '[:lower:]')"
-log_Msg "UseJacobian: ${UseJacobian}"
-
 MotionCorrectionType=`opts_GetOpt1 "--mctype" $@`  # use = "FLIRT" to run FLIRT-based mcflirt_acc.sh, or "MCFLIRT" to run MCFLIRT-based mcflirt.sh
 MotionCorrectionType=`opts_DefaultOpt $MotionCorrectionType MCFLIRT` #use mcflirt by default
-
-#error check
 case "$MotionCorrectionType" in
     MCFLIRT|FLIRT)
-        #nothing
+		log_Msg "MotionCorrectionType: ${MotionCorrectionType}"
     ;;
     
     *)
@@ -207,15 +530,31 @@ case "$MotionCorrectionType" in
     ;;
 esac
 
+GradientDistortionCoeffs=`opts_GetOpt1 "--gdcoeffs" $@`  
+log_Msg "GradientDistortionCoeffs: ${GradientDistortionCoeffs}"
+if [ -z ${GradientDistortionCoeffs} ]; then
+	log_Err_Abort "--gdcoeffs must be specified"
+fi
+
+dof=`opts_GetOpt1 "--dof" $@`
+dof=`opts_DefaultOpt $dof 6`
+log_Msg "dof: ${dof}"
+
+#NOTE: the jacobian option only applies the jacobian of the distortion corrections to the fMRI data, and NOT from the nonlinear T1 to template registration
+UseJacobian=`opts_GetOpt1 "--usejacobian" $@`
+# Convert UseJacobian value to all lowercase (to allow the user the flexibility to use True, true, TRUE, False, False, false, etc.)
+UseJacobian="$(echo ${UseJacobian} | tr '[:upper:]' '[:lower:]')"
+log_Msg "UseJacobian: ${UseJacobian}"
+
 JacobianDefault="true"
-if [[ $DistortionCorrection != "TOPUP" ]]
+if [[ $DistortionCorrection != "${SPIN_ECHO_METHOD_OPT}" ]]
 then
     #because the measured fieldmap can cause the warpfield to fold over, default to doing nothing about any jacobians
     JacobianDefault="false"
     #warn if the user specified it
     if [[ $UseJacobian == "true" ]]
     then
-        log_Msg "WARNING: using --jacobian=true with --dcmethod other than TOPUP is not recommended, as the distortion warpfield is less stable than TOPUP"
+        log_Msg "WARNING: using --jacobian=true with --dcmethod other than ${SPIN_ECHO_METHOD_OPT} is not recommended, as the distortion warpfield is less stable than ${SPIN_ECHO_METHOD_OPT}"
     fi
 fi
 log_Msg "JacobianDefault: ${JacobianDefault}"
@@ -223,16 +562,23 @@ log_Msg "JacobianDefault: ${JacobianDefault}"
 UseJacobian=`opts_DefaultOpt $UseJacobian $JacobianDefault`
 log_Msg "After taking default value if necessary, UseJacobian: ${UseJacobian}"
 
-if [[ -n $HCPPIPEDEBUG ]]
-then
-    set -x
-fi
-
 #sanity check the jacobian option
 if [[ "$UseJacobian" != "true" && "$UseJacobian" != "false" ]]
 then
 	log_Err_Abort "the --usejacobian option must be 'true' or 'false'"
 fi
+
+RUN=`opts_GetOpt1 "--printcom" $@`  # use ="echo" for just printing everything and not running the commands (default is to run)
+log_Msg "RUN: ${RUN}"
+
+if [[ -n $HCPPIPEDEBUG ]]
+then
+    set -x
+fi
+
+# Setup PATHS
+GlobalScripts=${HCPPIPEDIR_Global}
+PipelineScripts=${HCPPIPEDIR_fMRIVol}
 
 #Naming Conventions
 T1wImage="T1w_acpc_dc"
@@ -267,11 +613,35 @@ sebasedBiasFieldMNI="$SubjectFolder/$AtlasSpaceFolder/Results/$NameOffMRI/${Name
 
 fMRIFolder="$Path"/"$Subject"/"$NameOffMRI"
 
+# Set UseBiasFieldMNI variable, and error check BiasCorrection variable
+# (needs to go after "Naming Conventions" rather than the the initial argument parsing)
+case "$BiasCorrection" in
+    NONE)
+        UseBiasFieldMNI=""
+		;;
+    LEGACY)
+        UseBiasFieldMNI="${fMRIFolder}/${BiasFieldMNI}.${FinalfMRIResolution}"
+		;;    
+    SEBASED)
+        if [[ "$DistortionCorrection" != "${SPIN_ECHO_METHOD_OPT}" ]]
+        then
+            log_Err_Abort "--biascorrection=SEBASED is only available with --dcmethod=${SPIN_ECHO_METHOD_OPT}"
+        fi
+        UseBiasFieldMNI="$sebasedBiasFieldMNI"
+		;;
+    "")
+        log_Err_Abort "--biascorrection option not specified"
+		;;
+    *)
+        log_Err_Abort "unrecognized value for bias correction: $BiasCorrection"
+		;;
+esac
+
 # ------------------------------------------------------------------------------
 #  Legacy Style Data Options
 # ------------------------------------------------------------------------------
 
-PreregisterTool=`opts_GetOpt1 "--preregistertool" $@`                    # what to use to preregister BOLDs before FSL BBR - epi_reg (default) or flirt
+PreregisterTool=`opts_GetOpt1 "--preregistertool" $@`                    # what to use to preregister fMRI to T1w image before FreeSurfer BBR - epi_reg (default) or flirt
 DoSliceTimeCorrection=`opts_GetOpt1 "--doslicetime" $@`                  # Whether to do slicetime correction (TRUE), FALSE to omit.
                                                                          # WARNING: This LegacyStyleData option of slice timing correction is performed before motion correction 
                                                                          #   and thus assumes that the brain is motionless. Errors in temporal interpolation will occur in the presence
@@ -286,32 +656,32 @@ SliceTimerCorrectionParameters=$(opts_GetOpt1 "--slicetimerparams" "$@") # A '@'
                                                                          # Verbose (-v) is already turned on. TR is read from 'pixdim4' of the input NIFTI itself.
                                                                          # e.g. --slicetimerparams="--odd@--ocustom=<CustomInterleaveFile>"
 
-BOLDMask=`opts_GetOpt1 "--boldmask" $@`                                  # Specifies what mask to use for the final bold:
-                                                                         #   T1_fMRI_FOV: combined T1w brain mask and fMRI FOV masks (the default), 
-                                                                         #   T1_DILATED_fMRI_FOV: a once dilated T1w brain based mask combined with fMRI FOV
-                                                                         #   T1_DILATED2x_fMRI_FOV: a twice dilated T1w brain based mask combined with fMRI FOV, 
-                                                                         #   fMRI_FOV: a fMRI FOV mask    
+fMRIMask=`opts_GetOpt1 "--fmrimask" $@`                                  # Specifies what mask to use for the final fMRI output volume:
+                                                                         #   T1_fMRI_FOV (default): T1w brain based mask combined fMRI FOV mask
+                                                                         #   T1_DILATED_fMRI_FOV: once dilated T1w brain based mask combined with fMRI FOV
+                                                                         #   T1_DILATED2x_fMRI_FOV: twice dilated T1w brain based mask combined with fMRI FOV
+                                                                         #   fMRI_FOV: fMRI FOV mask only (i.e., voxels having spatial coverage at all time points)
 
-fMRIReference=`opts_GetOpt1 "--fmriref" $@`                              # Reference BOLD run name (i.e., --fmriname from run to be used as *reference*) to use as 
+fMRIReference=`opts_GetOpt1 "--fmriref" $@`                              # Reference fMRI run name (i.e., --fmriname from run to be used as *reference*) to use as 
                                                                          #   motion correction target and to copy atlas (MNI152) registration from (or NONE; default).
-                                                                         #   NOTE: The reference BOLD has to have been fully processed using fMRIVolume pipeline, so
+                                                                         #   NOTE: The reference fMRI has to have been fully processed using fMRIVolume pipeline, so
                                                                          #   that a distortion correction and atlas (MNI152) registration solution for the reference
-                                                                         #   BOLD already exists. Also, the reference BOLD must have been acquired using the same
+                                                                         #   fMRI already exists. Also, the reference fMRI must have been acquired using the same
                                                                          #   phase encoding direction, or it can not serve as a valid reference. 
                                                                          # WARNING: This option excludes the use of --fmriscout option, as the scout from the specified
-                                                                         #   reference BOLD is used. 
+                                                                         #   reference fMRI is used instead.
 
-fMRIReferenceReg=`opts_GetOpt1 "--fmrirefreg" $@`                        # In the cases when BOLD image is registered to a specified BOLD reference, this option 
-                                                                         #   specifies whether to use 'linear' or 'nonlinear' registration to reference BOLD.
+fMRIReferenceReg=`opts_GetOpt1 "--fmrirefreg" $@`                        # In the cases when the fMRI input is registered to a specified fMRI reference, this option 
+                                                                         #   specifies whether to use 'linear' or 'nonlinear' registration to the reference fMRI.
                                                                          #   Default is 'linear'.
 
 # Defaults
 PreregisterTool=`opts_DefaultOpt $PreregisterTool "epi_reg"`
 DoSliceTimeCorrection=`opts_DefaultOpt $DoSliceTimeCorrection "FALSE"`   
 fMRIReference=`opts_DefaultOpt $fMRIReference "NONE"`
-BOLDMask=`opts_DefaultOpt $BOLDMask "T1_fMRI_FOV"`
+fMRIMask=`opts_DefaultOpt $fMRIMask "T1_fMRI_FOV"`
 
-# If --dcmethod=NONE                                                     # WARNING: The fMRIVolume pipeline is being run without appropriate distortion correction of the fMRI image. 
+# If --dcmethod=NONE                                                     # WARNING: The fMRIVolume pipeline is being run without appropriate distortion correction of the fMRI images. 
                                                                          #   This is NOT RECOMMENDED under normal circumstances. We will attempt 6 DOF FreeSurfer BBR registration of 
                                                                          #   the distorted fMRI to the undistorted T1w image. Distorted portions of the fMRI data will not align with 
                                                                          #   the cortical ribbon. In HCP data 30% of the cortical surface will be misaligned by at least half cortical 
@@ -323,7 +693,7 @@ BOLDMask=`opts_DefaultOpt $BOLDMask "T1_fMRI_FOV"`
 
 
 # ------------------------------------------------------------------------------
-#  Compliance check
+#  Compliance check of Legacy Style Data options
 # ------------------------------------------------------------------------------
 
 ProcessingMode=`opts_GetOpt1 "--processing-mode" $@`
@@ -338,9 +708,9 @@ if [ "${DistortionCorrection}" = 'NONE' ]; then
   ComplianceMsg+=" --dcmethod=NONE"
   Compliance="LegacyStyleData"
   log_Warn "The fMRIVolume pipeline is being run without appropriate distortion correction"
-  log_Warn "  of the fMRI image. This is NOT RECOMMENDED under normal circumstances. We will "
-  log_Warn "  attempt 6 DOF FreeSurfer BBR registration of the distorted fMRI to the undistorted"
-  log_Warn "  T1w image. Distorted portions of the fMRI data will not align with the cortical ribbon."
+  log_Warn "  of the fMRI images. This is NOT RECOMMENDED under normal circumstances. We will "
+  log_Warn "  attempt 6 DOF FreeSurfer BBR registration of the distorted fMRI to the T1w image."
+  log_Warn "  Distorted portions of the fMRI data will not align with the cortical ribbon."
   log_Warn "  In HCP data 30% of the cortical surface will be misaligned by at least half cortical "
   log_Warn "  thickness and 10% of the cortical surface will be completely misaligned by a full "
   log_Warn "  cortical thickness. At a future time, we may be able to add support for fieldmap-less "
@@ -365,17 +735,17 @@ if [ "${DoSliceTimeCorrection}" = 'TRUE' ]; then
   log_Warn "   No slice timing correction is done by default"
 fi
 
-# -- Use of nonstandard BOLD mask
+# -- Use of nonstandard fMRI mask
 
-if [ "${BOLDMask}" != 'T1_fMRI_FOV' ]; then
-  if [ "${BOLDMask}" != "T1_DILATED_fMRI_FOV" ] && [ "${BOLDMask}" != "T1_DILATED2x_fMRI_FOV" ] && [ "${BOLDMask}" != "fMRI_FOV" ] ; then
-    log_Err_Abort "--boldmask=${BOLDMask} is invalid! Valid options are: T1_fMRI_FOV (default), T1_DILATED_fMRI_FOV, T1_DILATED2x_fMRI_FOV, fMRI_FOV."
+if [ "${fMRIMask}" != 'T1_fMRI_FOV' ]; then
+  if [ "${fMRIMask}" != "T1_DILATED_fMRI_FOV" ] && [ "${fMRIMask}" != "T1_DILATED2x_fMRI_FOV" ] && [ "${fMRIMask}" != "fMRI_FOV" ] ; then
+    log_Err_Abort "--fmrimask=${fMRIMask} is invalid! Valid options are: T1_fMRI_FOV (default), T1_DILATED_fMRI_FOV, T1_DILATED2x_fMRI_FOV, fMRI_FOV."
   fi
-  ComplianceMsg+=" --boldmask=${BOLDMask}"
+  ComplianceMsg+=" --fmrimask=${fMRIMask}"
   Compliance="LegacyStyleData"
 fi
 
-# -- Use of external BOLD reference
+# -- Use of external fMRI reference
 
 if [ "$fMRIReference" = "NONE" ]; then
   fMRIReferenceReg="NONE"    
@@ -384,10 +754,9 @@ if [ "$fMRIReference" = "NONE" ]; then
 else
   fMRIReferenceReg=`opts_DefaultOpt $fMRIReferenceReg "linear"`
 
-  # check if reference bold is specified
-
+  # --fmriref and --fmriscout are mutally exclusive
   if [ $fMRIScout != "NONE" ] ; then
-    log_Err_Abort "Both fMRI reference (--fmriref=${fMRIReference}) and fMRI Scout (--fmriscout=${fMRIScout}) were specified! The two options are mutualy exclusive."
+    log_Err_Abort "Both fMRI Reference (--fmriref=${fMRIReference}) and fMRI Scout (--fmriscout=${fMRIScout}) were specified! The two options are mutually exclusive."
   fi
 
   # set reference and check if external reference (if one is specified) exists 
@@ -399,15 +768,15 @@ else
   ReferenceResultsFolder="$Path"/"$Subject"/"$AtlasSpaceFolder"/"$ResultsFolder"/"$fMRIReference"
 
   if [ "$fMRIReferencePath" = "$fMRIFolder" ] ; then
-    log_Err_Abort "Specified BOLD reference (--fmriref=${fMRIReference}) is the same as the current BOLD (--fmriname=${NameOffMRI})!"
+    log_Err_Abort "Specified fMRI reference (--fmriref=${fMRIReference}) is the same as the current fMRI (--fmriname=${NameOffMRI})!"
   fi
 
   if [ `${FSLDIR}/bin/imtest ${fMRIReferenceImage}` -eq 0 ] ; then
-    log_Err_Abort "Intended BOLD Reference does not exist (${fMRIReferenceImage})!"
+    log_Err_Abort "Intended fMRI Reference does not exist (${fMRIReferenceImage})!"
   fi 
 
   if [ `${FSLDIR}/bin/imtest ${fMRIReferenceImageMask}` -eq 0 ] ; then
-    log_Err_Abort "Intended BOLD Reference mask does not exist (${fMRIReferenceImageMask})!"
+    log_Err_Abort "Intended fMRI Reference mask does not exist (${fMRIReferenceImageMask})!"
   fi 
 
   if [ ! -d "$ReferenceResultsFolder" ] ; then
@@ -418,14 +787,14 @@ else
 
   log_Warn "You are using an external reference (--fmriref=${fMRIReference}) for motion registration and"
   log_Warn "  distortion correction and registration to T1w image. Please consider using this option only"
-  log_Warn "  in cases when only one BOLD Reference image is available or when processing low spatial"
-  log_Warn "  resolution legacy BOLD images (for which within BOLD registration might be more robust"
-  log_Warn "  than independent registration to structural images). Please make sure that the reference BOLD"
-  log_Warn "  (--fmriref=${fMRIReference}) and the current bold (--fmriname=${NameOffMRI}) were acquired "
-  log_Warn "  using the same acquisition parameters, e.g. phase encoding direction."
+  log_Warn "  in cases when only one scout ('SBRef') image is available or when processing low spatial"
+  log_Warn "  resolution legacy fMRI images (for which between fMRI registration might be more robust"
+  log_Warn "  than independent registration to structural images). Please make sure that the reference fMRI"
+  log_Warn "  (--fmriref=${fMRIReference}) and the current fMRI (--fmriname=${NameOffMRI}) were acquired "
+  log_Warn "  using the same acquisition parameters, e.g., phase encoding polarity and echo spacing."
 fi
 
-# -- Use of nonlinear registration to external BOLD reference
+# -- Use of nonlinear registration to external fMRI reference
 
 if [ "${fMRIReferenceReg}" = "nonlinear" ] ; then
   ComplianceMsg+=" --fmrirefreg=${fMRIReferenceReg}"
@@ -438,29 +807,6 @@ check_mode_compliance "${ProcessingMode}" "${Compliance}" "${ComplianceMsg}"
 #  End Compliance check
 # ------------------------------------------------------------------------------
 
-
-#error check bias correction opt
-case "$BiasCorrection" in
-    NONE)
-        UseBiasFieldMNI=""
-		;;
-    LEGACY)
-        UseBiasFieldMNI="${fMRIFolder}/${BiasFieldMNI}.${FinalfMRIResolution}"
-		;;    
-    SEBASED)
-        if [[ "$DistortionCorrection" != "TOPUP" ]]
-        then
-            log_Err_Abort "SEBASED bias correction is only available with --dcmethod=TOPUP"
-        fi
-        UseBiasFieldMNI="$sebasedBiasFieldMNI"
-		;;
-    "")
-        log_Err_Abort "--biascorrection option not specified"
-		;;
-    *)
-        log_Err_Abort "unrecognized value for bias correction: $BiasCorrection"
-		;;
-esac
 
 ########################################## DO WORK ########################################## 
 
@@ -495,8 +841,8 @@ fi
 # --- Copy over scout (own or reference if specified), create fake if none exists
 
 if [ "$fMRIReference" != "NONE" ]; then
-    # --- copy over exisiting scout images
-    log_Msg "Copying Scout from Reference BOLD"
+    # --- copy over existing scout images
+    log_Msg "Copying Scout from Reference fMRI"
     ${FSLDIR}/bin/imcp ${fMRIReferencePath}/Scout* ${fMRIFolder}
 
     for simage in SBRef_nonlin SBRef_nonlin_norm
@@ -537,9 +883,9 @@ if [ $DistortionCorrection = "NONE" ] ; then
     fi
 
     if [ $reorient = "TRUE" ] ; then
-      log_Warn "Performing fslreorient2std! Please take that into account when using volume BOLD images in further analyses!"
+      log_Warn "Performing fslreorient2std! Please take that into account when using the volume fMRI images in further analyses!"
 
-      # --- reorient BOLD
+      # --- reorient fMRI
       ${FSLDIR}/bin/immv "$fMRIFolder"/"$OrigTCSName" "$fMRIFolder"/"$OrigTCSName"_pre2std
       ${FSLDIR}/bin/fslreorient2std "$fMRIFolder"/"$OrigTCSName"_pre2std "$fMRIFolder"/"$OrigTCSName"
       ${FSLDIR}/bin/imrm "$fMRIFolder"/"$OrigTCSName"_pre2std
@@ -703,7 +1049,7 @@ mkdir -p ${ResultsFolder}
 #now that we have the final MNI fMRI space, resample the T1w-space sebased bias field related outputs
 #the alternative is to add a bunch of optional arguments to OneStepResampling that just do the same thing
 #we need to do this before intensity normalization, as it uses the bias field output
-if [[ ${DistortionCorrection} == "TOPUP" ]]
+if [[ ${DistortionCorrection} == "${SPIN_ECHO_METHOD_OPT}" ]]
 then
     if [ "$fMRIReference" = "NONE" ]; then        
         #create MNI space corrected fieldmap images
@@ -712,7 +1058,7 @@ then
         ${FSLDIR}/bin/applywarp --rel --interp=spline --in=${DCFolder}/PhaseTwo_gdc_dc_unbias -w ${AtlasSpaceFolder}/xfms/${AtlasTransform} -r ${fMRIFolder}/${NameOffMRI}_SBRef_nonlin -o ${ResultsFolder}/${NameOffMRI}_PhaseTwo_gdc_dc
         ${FSLDIR}/bin/fslmaths ${ResultsFolder}/${NameOffMRI}_PhaseTwo_gdc_dc -mas ${fMRIFolder}/${FreeSurferBrainMask}.${FinalfMRIResolution}.nii.gz ${ResultsFolder}/${NameOffMRI}_PhaseTwo_gdc_dc    
     else        
-        #as these have been already computed, we can copy them from the reference bold
+        #as these have been already computed, we can copy them from the reference fMRI
         ${FSLDIR}/bin/imcp ${ReferenceResultsFolder}/${fMRIReference}_PhaseOne_gdc_dc ${ResultsFolder}/${NameOffMRI}_PhaseOne_gdc_dc
         ${FSLDIR}/bin/imcp ${ReferenceResultsFolder}/${fMRIReference}_PhaseOne_gdc_dc ${ResultsFolder}/${NameOffMRI}_PhaseOne_gdc_dc
         ${FSLDIR}/bin/imcp ${ReferenceResultsFolder}/${fMRIReference}_PhaseTwo_gdc_dc ${ResultsFolder}/${NameOffMRI}_PhaseTwo_gdc_dc
@@ -736,7 +1082,7 @@ then
             ${FSLDIR}/bin/applywarp --interp=trilinear -i ${DCFolder}/ComputeSpinEchoBiasField/${NameOffMRI}_pseudo_transmit_field.nii.gz -r ${fMRIFolder}/${NameOffMRI}_SBRef_nonlin -w ${AtlasSpaceFolder}/xfms/${AtlasTransform} -o ${ResultsFolder}/${NameOffMRI}_pseudo_transmit_field.nii.gz
             ${FSLDIR}/bin/fslmaths ${ResultsFolder}/${NameOffMRI}_pseudo_transmit_field.nii.gz -mas ${fMRIFolder}/${FreeSurferBrainMask}.${FinalfMRIResolution}.nii.gz ${ResultsFolder}/${NameOffMRI}_pseudo_transmit_field.nii.gz
         else
-            #as these have been already computed, we can copy them from the reference bold
+            #as these have been already computed, we can copy them from the reference fMRI
             ${FSLDIR}/bin/imcp ${ReferenceResultsFolder}/${fMRIReference}_sebased_bias.nii.gz ${ResultsFolder}/${NameOffMRI}_sebased_bias.nii.gz
             ${FSLDIR}/bin/imcp ${ReferenceResultsFolder}/${fMRIReference}_sebased_reference.nii.gz ${ResultsFolder}/${NameOffMRI}_sebased_reference.nii.gz
             ${FSLDIR}/bin/imcp ${ReferenceResultsFolder}/${fMRIReference}_dropouts.nii.gz ${ResultsFolder}/${NameOffMRI}_dropouts.nii.gz
@@ -757,7 +1103,7 @@ ${RUN} ${PipelineScripts}/IntensityNormalization.sh \
        --inscout=${fMRIFolder}/${NameOffMRI}_SBRef_nonlin \
        --oscout=${fMRIFolder}/${NameOffMRI}_SBRef_nonlin_norm \
        --usejacobian=${UseJacobian} \
-       --boldmask=${BOLDMask}
+       --fmrimask=${fMRIMask}
 
 #Copy selected files to ResultsFolder
 ${RUN} cp ${fMRIFolder}/${NameOffMRI}_nonlin_norm.nii.gz ${ResultsFolder}/${NameOffMRI}.nii.gz
@@ -780,8 +1126,8 @@ ${FSLDIR}/bin/imrm ${fMRIFolder}/${NameOffMRI}_nonlin_norm
 
 #Econ
 #${FSLDIR}/bin/imrm "$fMRIFolder"/"$OrigTCSName"
-#${FSLDIR}/bin/imrm "$fMRIFolder"/"$NameOffMRI"_gdc
-#${FSLDIR}/bin/imrm "$fMRIFolder"/"$NameOffMRI"_mc
+${FSLDIR}/bin/imrm "$fMRIFolder"/"$NameOffMRI"_gdc #This can be checked with the SBRef
+${FSLDIR}/bin/imrm "$fMRIFolder"/"$NameOffMRI"_mc #This can be checked with the unmasked spatially corrected data
 
 log_Msg "Completed!"
 

@@ -59,7 +59,7 @@ hcp_fix_multi_run <4D_FMRI_data> <highpass> <concat_name> <do_motion_regression>
      Must be specified, use TRUE or FALSE
 
   [<TrainingFile>] (optional)
-     Defaults to "HCP_hp${hp}.RData"
+     Defaults to "HCP_hp<highpass>.RData"
      In the case of polynomial detrending, will use HCP_hp2000.RData
 
   [<FixThreshold>] (optional)
@@ -570,40 +570,13 @@ fslmerge -tr ${ConcatFolder}/${concatfmrihp}.ica/mc/prefiltered_func_data_mcf_co
 #MPH: Now we can switch to ${ConcatFolder}
 cd ${ConcatFolder}
 
-log_Debug_Msg "About to run melodic: Contents of ${concatfmrihp}.ica follow"
-if [ ! -z "${log_debugOn}" ] ; then
-	ls -lRa ${concatfmrihp}.ica
-fi
-
-#grab melodic from $PATH by default, don't hardcode it with respect to $FSLDIR
-#we need to do "if which ..." because the script currently uses ERR trap
-if which melodic &> /dev/null
-then
-    MELODIC=$(which melodic 2> /dev/null)
-else
-    #if it isn't even in $PATH, fall back on FSLDIR
-    MELODIC="${FSLDIR}/bin/melodic"
-fi
-
-log_Msg "Running MELODIC located at: $MELODIC"
-log_Debug_Msg "Beginning of melodic version log, help, and checksum"
-if [ ! -z "${log_debugOn}" ] ; then
-	log_Debug_Msg "$MELODIC --version"
-	$MELODIC --version
-	log_Debug_Msg "$MELODIC --help"
-	$MELODIC --help
-	log_Debug_Msg "md5sum $MELODIC"
-	md5sum $MELODIC
-fi
-log_Debug_Msg "End of melodic version log, help, and checksum"
-
-AlreadyHP="-1" #Don't run highpass on concatenated data (since hp was done on the individual runs)
-
 ## "2nd pass" VN
 ## This is solely so that we can apply our own variance normalization as part of the spatial ICA, 
 ## rather than using the VN algorithm internal to melodic
 ## (The resulting ${concatfmrihp}_vnts time series is NOT the one that gets cleaned by FIX).
 ## See comments above about regarding the use of call_matlab here.
+
+AlreadyHP="-1" #Don't run highpass on concatenated data (since hp was done on the individual runs)
 
 case ${FSL_FIX_MATLAB_MODE} in
 	0)
@@ -636,6 +609,33 @@ log_Msg "Dim: ${Dim}"
 ## ---------------------------------------------------------------------------
 ## Run melodic on concatenated file
 ## ---------------------------------------------------------------------------
+
+log_Debug_Msg "About to run melodic: Contents of ${concatfmrihp}.ica follow"
+if [ ! -z "${log_debugOn}" ] ; then
+	ls -lRa ${concatfmrihp}.ica
+fi
+
+#grab melodic from $PATH by default, don't hardcode it with respect to $FSLDIR
+#we need to do "if which ..." because the script currently uses ERR trap
+if which melodic &> /dev/null
+then
+    MELODIC=$(which melodic 2> /dev/null)
+else
+    #if it isn't even in $PATH, fall back on FSLDIR
+    MELODIC="${FSLDIR}/bin/melodic"
+fi
+
+log_Msg "Running MELODIC located at: $MELODIC"
+log_Debug_Msg "Beginning of melodic version log, help, and checksum"
+if [ ! -z "${log_debugOn}" ] ; then
+	log_Debug_Msg "$MELODIC --version"
+	$MELODIC --version
+	log_Debug_Msg "$MELODIC --help"
+	$MELODIC --help
+	log_Debug_Msg "md5sum $MELODIC"
+	md5sum $MELODIC
+fi
+log_Debug_Msg "End of melodic version log, help, and checksum"
 
 # Use the Wishart-based dim estimate instead of the melodic-based estimate (--dim=${Dim})
 # Also turn off melodic VN and feed in the input that has already been VN'ed instead (--vn flag, which turns OFF melodic's vn)
@@ -825,6 +825,15 @@ then
     rm -f ${concatfmri}_Atlas.dtseries.nii ${concatfmri}_Atlas_hp${hp}.dtseries.nii
 fi
 
+# Convert sICA+FIX cleaned movement regressors to text
+if [ -f ${concatfmrihp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz ] ; then
+  fslmeants -i ${concatfmrihp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz -o Movement_Regressors_hp${hp}_clean.txt --showall
+  # Strip header lines included as part of '--showall' flag
+  nVols=$($FSLDIR/bin/fslnvols ${concatfmrihp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz)
+  # Execute tail in a subshell, so we can successfully overwrite file with same name
+  echo "$(tail -n ${nVols} Movement_Regressors_hp${hp}_clean.txt)" > Movement_Regressors_hp${hp}_clean.txt
+fi
+
 ## ---------------------------------------------------------------------------
 ## Split the cleaned volume and CIFTI back into individual runs.
 ## ---------------------------------------------------------------------------
@@ -859,14 +868,25 @@ for fmri in $fmris ; do
 	for readme_fmri in ${fmris} ; do
 		echo "  ${readme_fmri}" >> ${readme_for_cifti_out}
 	done
-		
+
 	volume_out=${fmriNoExt}_hp${hp}_clean.nii.gz
 	${Caret7_Command} -volume-merge ${volume_out} -volume ${ConcatFolder}/${concatfmrihp}_clean.nii.gz -subvolume ${Start} -up-to ${Stop}
 	fslmaths ${volume_out} -div ${ConcatFolder}/${concatfmrihp}_vn -mul ${fmriNoExt}_hp${hp}_vn -add ${fmriNoExt}_mean ${volume_out}
+
+  # Convert sICA+FIX cleaned movement regressors to text
+  if [ -f ${ConcatFolder}/${concatfmrihp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz ] ; then
+    ${Caret7_Command} -volume-merge ${fmriNoExt}_hp${hp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz -volume ${ConcatFolder}/${concatfmrihp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz -subvolume ${Start} -up-to ${Stop}
+	fmriDir=$(dirname $fmri)
+    fslmeants -i ${fmriNoExt}_hp${hp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz -o ${fmriDir}/Movement_Regressors_hp${hp}_clean.txt --showall
+    # Strip header lines included as part of '--showall' flag
+	nVols=$($FSLDIR/bin/fslnvols ${fmriNoExt}_hp${hp}.ica/mc/prefiltered_func_data_mcf_conf_hp_clean.nii.gz)
+    # Execute tail in a subshell, so we can successfully overwrite file with same name
+    echo "$(tail -n ${nVols} ${fmriDir}/Movement_Regressors_hp${hp}_clean.txt)" > ${fmriDir}/Movement_Regressors_hp${hp}_clean.txt
+  fi
+
 	Start=`echo "${Start} + ${NumTPS}" | bc -l`
 done
 
 cd ${DIR}
 
 log_Msg "Completed!"
-

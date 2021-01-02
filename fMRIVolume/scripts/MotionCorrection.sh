@@ -2,7 +2,7 @@
 
 # Requirements for this script
 #  installed versions of: FSL
-#  environment: HCPPIPEDIR, FSLDIR
+#  environment: HCPPIPEDIR, FSLDIR, HCPPIPEDIR_Global
 
 # --------------------------------------------------------------------------------
 #  Usage Description Function
@@ -15,9 +15,17 @@ show_usage() {
 
 ${script_name}
 
-Usage: ${script_name} [options]
+Script currently parses arguments positionally, as follows:
 
-Usage information To Be Written
+WorkingDirectory="\$1"
+InputfMRI="\$2"
+Scout="\$3"
+OutputfMRI="\$4"
+OutputMotionRegressors="\$5"
+OutputMotionMatrixFolder="\$6"
+OutputMotionMatrixNamePrefix="\$7"
+MotionCorrectionType="\$8"
+fMRIReferenceReg="\$9"
 
 EOF
 }
@@ -38,7 +46,8 @@ if [ -z "${HCPPIPEDIR}" ]; then
 fi
 
 source "${HCPPIPEDIR}/global/scripts/debug.shlib" "$@"         # Debugging functions; also sources log.shlib
-source ${HCPPIPEDIR}/global/scripts/opts.shlib                 # Command line option functions
+source "${HCPPIPEDIR}/global/scripts/opts.shlib"               # Command line option functions
+source "${HCPPIPEDIR}/global/scripts/tempfiles.shlib"          # handle temporary files
 
 opts_ShowVersionIfRequested $@
 
@@ -53,6 +62,7 @@ fi
 
 log_Check_Env_Var HCPPIPEDIR
 log_Check_Env_Var FSLDIR
+log_Check_Env_Var HCPPIPEDIR_Global
 
 # --------------------------------------------------------------------------------
 #  Do work
@@ -172,7 +182,7 @@ function DeriveBackwards {
   # TCS becomes an array of the values from column $i in $in (derived from Var)
   TCS=($Var)
   # random is a random file name for temporary output
-  random=$RANDOM
+  random="$(tempfiles_create MotionCorrectionRandom_XXXXXX.txt)"
 
   # Cycle through our array of values from column $i
   j=0
@@ -200,7 +210,6 @@ function DeriveBackwards {
   done
   paste -d " " $out $random > ${out}_
   mv ${out}_ ${out}
-  rm $random
 }
 
 # Run the Derive function to generate appropriate regressors from the par file

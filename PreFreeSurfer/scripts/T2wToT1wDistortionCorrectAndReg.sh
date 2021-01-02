@@ -11,6 +11,7 @@
 SIEMENS_METHOD_OPT="SiemensFieldMap"
 SPIN_ECHO_METHOD_OPT="TOPUP"
 GENERAL_ELECTRIC_METHOD_OPT="GeneralElectricFieldMap"
+PHILIPS_METHOD_OPT="PhilipsFieldMap"
 FIELDMAP_METHOD_OPT="FIELDMAP"
 
 # ------------------------------------------------------------------------------
@@ -51,6 +52,9 @@ Usage: ${script_name}
 
         "${SPIN_ECHO_METHOD_OPT}"
            use Spin Echo Field Maps for readout distortion correction
+
+        "${PHILIPS_METHOD_OPT}"
+           use Philips specific Gradient Echo Field Maps for readout distortion correction
 
         "${GENERAL_ELECTRIC_METHOD_OPT}"
            use General Electric specific Gradient Echo Field Maps for readout distortion correction
@@ -237,8 +241,9 @@ case $DistortionCorrection in
         echo " "
         echo " "
 
-        ${HCPPIPEDIR_Global}/SiemensFieldMapPreprocessingAll.sh \
+        ${HCPPIPEDIR_Global}/FieldMapPreprocessingAll.sh \
             --workingdir=${WD}/FieldMap \
+            --method="SiemensFieldMap" \
             --fmapmag=${MagnitudeInputName} \
             --fmapphase=${PhaseInputName} \
             --echodiff=${TE} \
@@ -260,9 +265,34 @@ case $DistortionCorrection in
         echo " "
         echo " " 
 
-        ${HCPPIPEDIR_Global}/GeneralElectricFieldMapPreprocessingAll.sh \
+        ${HCPPIPEDIR_Global}/FieldMapPreprocessingAll.sh \
             --workingdir=${WD}/FieldMap \
+            --method="GeneralElectricFieldMap" \
             --fmap=${GEB0InputName} \
+            --ofmapmag=${WD}/Magnitude \
+            --ofmapmagbrain=${WD}/Magnitude_brain \
+            --ofmap=${WD}/FieldMap \
+            --gdcoeffs=${GradientDistortionCoeffs}
+
+        ;;
+
+    ${PHILIPS_METHOD_OPT})
+
+        # --------------------------------------
+        # -- Philips Gradient Echo Field Maps --
+        # --------------------------------------
+
+        ### Create fieldmaps (and apply gradient non-linearity distortion correction)
+        echo " "
+        echo " "
+        echo " "
+
+        ${HCPPIPEDIR_Global}/FieldMapPreprocessingAll.sh \
+            --workingdir=${WD}/FieldMap \
+            --method="PhilipsFieldMap" \
+            --fmapmag=${MagnitudeInputName} \
+            --fmapphase=${PhaseInputName} \
+            --echodiff=${TE} \
             --ofmapmag=${WD}/Magnitude \
             --ofmapmagbrain=${WD}/Magnitude_brain \
             --ofmap=${WD}/FieldMap \
@@ -360,7 +390,7 @@ for TXw in $Modalities ; do
 
     case $DistortionCorrection in
 
-        ${FIELDMAP_METHOD_OPT} | ${SIEMENS_METHOD_OPT} | ${GENERAL_ELECTRIC_METHOD_OPT})
+        ${FIELDMAP_METHOD_OPT} | ${SIEMENS_METHOD_OPT} | ${GENERAL_ELECTRIC_METHOD_OPT} | ${PHILIPS_METHOD_OPT})
             ${FSLDIR}/bin/applywarp --rel --interp=spline -i ${WD}/Magnitude -r ${WD}/Magnitude -w ${WD}/FieldMap_Warp${TXw}.nii.gz -o ${WD}/Magnitude_warpped${TXw}
             ${FSLDIR}/bin/flirt -interp spline -dof 6 -in ${WD}/Magnitude_warpped${TXw} -ref ${TXwImage} -out ${WD}/Magnitude_warpped${TXw}2${TXwImageBasename} -omat ${WD}/Fieldmap2${TXwImageBasename}.mat -searchrx -30 30 -searchry -30 30 -searchrz -30 30
             ;;

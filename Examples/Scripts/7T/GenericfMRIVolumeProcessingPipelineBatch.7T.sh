@@ -81,18 +81,8 @@ get_batch_options()
 get_batch_options "$@"
 
 # Requirements for this script
-#
-#  installed versions of: 
-#  * FSL (version 5.0.6)
-#  * FreeSurfer (version 5.3.0-HCP)
-#  * gradunwarp (HCP version 1.0.1)
-#
-#  environment: 
-#  * FSLDIR
-#  * FREESURFER_HOME
-#  * HCPPIPEDIR
-#  * CARET7DIR
-#  * PATH (for gradient_unwarp.py)
+#  installed versions of: FSL, FreeSurfer, Connectome Workbench (wb_command), gradunwarp (HCP version)
+#  environment: HCPPIPEDIR, FSLDIR, FREESURFER_HOME, CARET7DIR, PATH for gradient_unwarp.py
 
 # Set up pipeline environment variables and software
 source ${EnvironmentScript}
@@ -197,6 +187,12 @@ do
 		# Values: TOPUP, SiemensFieldMap (same as FIELDMAP), GeneralElectricFieldMap
 		DistortionCorrection="TOPUP"
 		
+		# Receive coil bias field correction method
+		# Values: NONE, LEGACY, or SEBASED
+		#   SEBASED calculates bias field from spin echo images (which requires TOPUP distortion correction)
+		#   LEGACY uses the T1w bias field (method used for 3T HCP-YA data, but non-optimal; not recommended).
+		BiasCorrection="SEBASED"
+
 		# For the spin echo field map volume with a 'negative' phase encoding direction
 		# (LR in HCP-YA data; AP in 7T HCP-YA and HCP-D/A data)
 		# Set to NONE if using regular FIELDMAP
@@ -262,6 +258,7 @@ do
 			--topupconfig=${TopUpConfig} \
 			--dof=${dof_epi2t1} \
 			--printcom=${PRINTCOM} \
+			--biascorrection=$BiasCorrection \
 			--mctype=${MCType}
 	done
 	

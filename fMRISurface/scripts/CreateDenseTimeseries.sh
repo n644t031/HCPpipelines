@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/bin/bash
 
 # --------------------------------------------------------------------------------
 #  Usage Description Function
@@ -86,7 +86,7 @@ if [ "$Nnonzero" -ne "$Ngrayordinates" ]; then
 	${CARET7DIR}/wb_command -cifti-math 'x > 0' "$OutputAtlasDenseTimeseries"_nonzero.dscalar.nii -var x "$OutputAtlasDenseTimeseries".stdev.dscalar.nii
 fi
 rm -f "$OutputAtlasDenseTimeseries".stdev.dscalar.nii
-	
+
 #Basic Cleanup
 rm "$NameOffMRI"_AtlasSubcortical_s"$SmoothingFWHM".nii.gz
 rm "$NameOffMRI"_s"$SmoothingFWHM".atlasroi.L."$LowResMesh"k_fs_LR.func.gii
